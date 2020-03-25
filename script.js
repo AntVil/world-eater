@@ -98,10 +98,13 @@ function Controls(){
 
 
 function Game(){
-    this.xCameraOffset = 0.25;
+    this.xCameraOffset = 0.15;
     this.yCameraOffset = 0.5;
 
-    this.worm = new Worm(0, 0);
+	this.worm = new Worm(0, 0);
+	
+	this.coins = [];
+	this.coins.push(new Coin(this.worm.x + 0.5, Math.random()));
 
     this.map = new Map();
 
@@ -112,14 +115,32 @@ function Game(){
     }
 
     this.update = function(){
-        this.worm.update(this.map);
+		this.worm.update(this.map);
+		
+		if(Math.random() < 0.01){
+			this.coins.push(new Coin(this.worm.x + 2, Math.random()));
+		}
+
+		for(var i=this.coins.length-1;i>=0;i--){
+			if(this.coins[i].touchingWorm(this.worm)){
+				this.coins.splice(i, 1);
+			}else if(this.coins[i].x < this.worm.x - this.xCameraOffset){
+				this.coins.splice(i, 1);
+			}
+		}
     }
 
     this.render = function(c, frame, width, height){
         this.map.render(c, frame, width, height, this.worm.x, -this.worm.y, this.xCameraOffset, this.yCameraOffset);
         this.worm.renderTrail(c, frame, width, height, this.xCameraOffset, this.yCameraOffset);
         this.map.renderInverse(c, frame, width, height, this.worm.x, -this.worm.y, this.xCameraOffset, this.yCameraOffset);
-        this.worm.render(c, frame, width, height, this.xCameraOffset, this.yCameraOffset);
+		this.worm.render(c, frame, width, height, this.xCameraOffset, this.yCameraOffset);
+		
+		for(var i=0;i<this.coins.length;i++){
+			this.coins[i].render(c, frame, width, height, this.worm.x, -this.worm.y, this.xCameraOffset, this.yCameraOffset);
+		}
+
+		this.worm.renderStats(c, frame, width, height);
     }
 }
 
@@ -137,8 +158,18 @@ function Map(){
         c.lineTo(width, height);
         c.fill();
 
+
         c.fillStyle = "#999999";
-        c.fillRect(0, height * (1.5 + up), width, height);
+		//c.fillRect(0, height * (1.5 + up), width, height);
+		
+
+		c.beginPath();
+        c.moveTo(0, height);
+        for(var i=0;i<1.1;i+=0.01){
+            c.lineTo(width * i, (this.getBedrockHeight(i + left - xCameraOffset) + up + yCameraOffset) * height);
+        }
+        c.lineTo(width, height);
+        c.fill();
     }
 
     this.renderInverse = function(c, frame, width, height, left, up, xCameraOffset, yCameraOffset){
@@ -154,8 +185,13 @@ function Map(){
 
     this.getHeightAt = function(x){
         noise.seed(this.noiseSeed);
-        return (noise.perlin2(1, x)+1)/2;
-    }
+		return Math.abs(noise.perlin2(1, x)) + (noise.perlin2(5, x)+1)/2;
+	}
+	
+	this.getBedrockHeight = function(x){
+		noise.seed(this.noiseSeed);
+		return (noise.perlin2(2, x)+1)/2 + 1;
+	}
 }
 
 
@@ -164,16 +200,37 @@ function Worm(x, y){
     this.y = y;
     this.xSpeed = 0.01;
     this.ySpeed = 0;
-    this.width = 0.025;
+	this.width = 0.025;
 
     this.diging = false;
 
-    this.underground = false;
+	this.underground = false;
+	
+	this.health = 1;
+	this.coins = 0;
 
     this.history = [];
     for(var i=0;i<50;i++){
         this.history.push([this.x, this.y]);
-    }
+	}
+	
+
+	//physics constants
+	this.inAirDigingXSpeedAdd = 0.005;
+	this.inAirDigingYSpeedAdd = -0.001;
+	this.underGroundDigingYSpeedAdd = 0.002;
+	this.underGroundDigingMaxYSpeed = 0.01;
+	this.underGroundDigingXSpeed = 0.01;
+	this.inAirYSpeedAdd = 0.0005;
+	this.underGroundYSpeedAdd = -0.0025;
+	this.underGroundXSpeedAdd = -0.01;
+	this.slopeDistance = 0.01;
+	this.slopeDivisionFactor = 50;
+	this.ySpeedFriction = 0.98;
+	this.minXSpeed = 0.01;
+
+	this.healthDegeneration = 0.001;
+
 
     this.renderTrail = function(c, frame, width, height, xCameraOffset, yCameraOffset){
         c.strokeStyle = "#39170c";
@@ -192,62 +249,113 @@ function Worm(x, y){
     }
 
     this.render = function(c, frame, width, height, xCameraOffset, yCameraOffset){
-        c.fillStyle = "#FFFFFF";
+        c.fillStyle = "#F8C5De";
         for(var i=0;i<this.history.length;i+=5){
             c.beginPath();
-            c.arc((this.history[i][0] - this.x + xCameraOffset) * width, (this.history[i][1]-this.y + yCameraOffset) * height, this.width * width, 0, 2*Math.PI);
+            c.arc((this.history[i][0] - this.x + xCameraOffset) * width, (this.history[i][1]-this.y + yCameraOffset) * height, this.width * width * (this.history.length - i/2)/this.history.length, 0, 2*Math.PI);
             c.fill();
         }
-    }
+	}
+	
+	this.renderStats = function(c, frame, width, height){
+		c.fillStyle = "#FF0000";
+		c.fillRect(width*0.33, height * 0.05, width*0.33, height*0.05);
+
+		if(this.health > 0){
+			c.fillStyle = "#00FF00";
+			c.fillRect(width*0.33, height * 0.05, width*0.33*this.health, height*0.05);
+		}
+
+		c.lineWidth = height*0.01;
+		c.strokeStyle = "#666666";
+		c.strokeRect(width*0.33, height * 0.05, width*0.33, height*0.05);
+
+
+		c.fillStyle = "#FFFFFF";
+		c.font = Math.round(height * 0.05) + "px arial";
+		c.fillText(this.coins, 0.025 * width, 0.05 * height);
+	}
 
     this.update = function(map){
         if(this.diging){
             if(map.getHeightAt(this.x) - this.width > this.y){
-                this.ySpeed += 0.005;
-                this.xSpeed -= 0.001;
+				this.ySpeed += this.inAirDigingXSpeedAdd;
+				this.xSpeed += this.inAirDigingYSpeedAdd;
             }else{
-                this.underground = true;
-                this.ySpeed = 0.01;
-                this.xSpeed = 0.01;
+				this.underground = true;
+				this.ySpeed = Math.min(this.ySpeed + this.underGroundDigingYSpeedAdd, this.underGroundDigingMaxYSpeed);
+				this.xSpeed = this.underGroundDigingXSpeed;
             }
         }else{
             if(map.getHeightAt(this.x) - this.width > this.y){
-                //in air
-                this.ySpeed += 0.001;
-                //this.xSpeed += 0.0001;
+				//in air
+				this.ySpeed += this.inAirYSpeedAdd;
                 this.underground = false;
             }else{
                 if(this.underground){
-                    //going up
-                    this.ySpeed -= 0.0075;
-                    this.xSpeed -= 0.01;
+					//going up
+					this.ySpeed += this.underGroundYSpeedAdd;
+					this.xSpeed += this.underGroundXSpeedAdd;
                 }else{
-                    //on slope
-                    this.xSpeed += (map.getHeightAt(this.x + 0.01) - map.getHeightAt(this.x)) / 50;
-                    this.y = map.getHeightAt(this.x) - this.width;
+					//on slope
+					this.y = map.getHeightAt(this.x) - this.width;
+					this.ySpeed = 0;
+					this.xSpeed += (map.getHeightAt(this.x + this.slopeDistance) - map.getHeightAt(this.x)) / this.slopeDivisionFactor;
                 }
             }
         }
-
-        this.xSpeed = Math.max(0.01, this.xSpeed);
-        this.ySpeed *= 0.95;
+		
+		this.xSpeed = Math.max(this.minXSpeed, this.xSpeed);
+        this.ySpeed *= this.ySpeedFriction;
 
         this.x += this.xSpeed;
         this.y += this.ySpeed;
 
-        if(this.y > 1 - this.width){
-            this.y = 1 - this.width;
-            this.ySpeed = -0.001;
+        if(this.y > map.getBedrockHeight(this.x) - this.width){
+            this.y = map.getBedrockHeight(this.x) - this.width;
+            this.ySpeed = -this.underGroundDigingYSpeedAdd;
         }
 
         this.history.pop();
         this.history.unshift([this.x, this.y]);
-        this.diging = false;
+		this.diging = false;
+		
+		this.health -= this.healthDegeneration;
     }
 
     this.dig = function(){
         this.diging = true;
-    }
+	}
+	
+	this.increaseCoins = function(){
+		this.coins++;
+	}
+}
+
+
+
+
+function Coin(x, y){
+	this.x = x;
+	this.y = y;
+	this.width = 0.025;
+
+	this.render = function(c, frame, width, height, left, up, xCameraOffset, yCameraOffset){
+		c.fillStyle = "#f7df68";
+		c.beginPath();
+		var mod = 25;
+		c.arc((this.x + xCameraOffset - left) * width, (this.y + yCameraOffset + up) * height, this.width * width * (frame % mod)/mod, 0, 2*Math.PI);
+		c.fill();
+	}
+
+	this.touchingWorm = function(worm){
+		if(Math.hypot(worm.x - this.x, worm.y - this.y) < worm.width + this.width){
+			worm.increaseCoins();
+			return true;
+		}else{
+			return false;
+		}
+	}
 }
 
 
